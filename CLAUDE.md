@@ -125,8 +125,9 @@ pdf_editor/
 - Ignorar erros silenciosamente
 - Modificar código fora do escopo
 - Pular hooks com `--no-verify`
-- Utilizar "any" na tipagem.
-- Evitar usar type casts "as" tanto quanto possível, a não ser que seja realmente necessário.
+- Utilizar "any" na tipagem
+- acessar ou modificar .env sem autorização
+- Evitar usar type casts "as" tanto quanto possível, a não ser que seja realmente necessário
 
 ## Segurança
 

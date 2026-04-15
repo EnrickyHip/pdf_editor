@@ -78,14 +78,15 @@ Template atual: Next.js 15 App Router, styled-components 6, TypeScript 5.8, Jest
 
 **Depois:**
 ```yaml
-version: '3.8'
 services:
   postgres:
     image: postgres:17-alpine
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: pdf_editor
-      POSTGRES_PASSWORD: pdf_editor_secret
-      POSTGRES_DB: pdf_editor
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - '5432:5432'
     volumes:
@@ -172,10 +173,19 @@ model DocumentVersion {
 
 **`.env`:**
 ```
+POSTGRES_USER=pdf_editor
+POSTGRES_PASSWORD=pdf_editor_secret
+POSTGRES_DB=pdf_editor
+
 DATABASE_URL="postgresql://pdf_editor:pdf_editor_secret@localhost:5432/pdf_editor"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="dev-secret-change-in-production"
+
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
 ```
+
+Exemplo em `.env.example`.
 
 **`src/lib/prisma.ts`:**
 ```typescript

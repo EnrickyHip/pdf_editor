@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  image     String?
+  createdAt DateTime @default(now())
+  documents Document[]
+}
+
+model Document {
+  id           String              @id @default(cuid())
+  userId       String
+  user         User                @relation(fields: [userId], references: [id])
+  name         String
+  originalPath String
+  pages        Int
+  isOcr        Boolean             @default(false)
+  edits        Json                @default("[]")
+  highlights   Json                @default("[]")
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  versions     DocumentVersion[]
+}
+
+model DocumentVersion {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  name       String
+  edits      Json
+  highlights Json
+  filePath   String
+  createdAt  DateTime @default(now())
+}
