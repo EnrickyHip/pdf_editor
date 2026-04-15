@@ -17,15 +17,16 @@ Template atual: Next.js 15 App Router, styled-components 6, TypeScript 5.8, Jest
 
 ## Decisões
 
-| Decisão                                | Justificativa                           | Alternativa descartada | Por que não                            |
-| -------------------------------------- | --------------------------------------- | ---------------------- | -------------------------------------- |
-| Híbrida: overlay + reescrita no export | Preview instantâneo sem corromper PDF   | Reescrever sempre      | Risco de quebrar fontes/layouts        |
-| API Routes + Prisma                    | Menos infra, repo único                 | Backend separado       | Overhead de config para 24h            |
-| Filesystem local                       | Simples, sem conta externa              | S3/MinIO               | Config extra desnecessária             |
-| PDF.js client-side                     | Mais rápido, sem latência               | Server-side            | Mais lento, precisa transferir bytes   |
-| OCR server-side (Tesseract.js)         | Não trava browser, mais recursos        | Client-side            | Travaria com PDFs grandes              |
-| NextAuth Credentials                   | Login genérico, sem dependência externa | Google, GitHub         | Sem tempo para configurar OAuth em 24h |
-| styled-components 6                    | Template já configurado                 | Tailwind               | Não vale a pena trocar em 24h          |
+| Decisão                                | Justificativa                               | Alternativa descartada | Por que não                            |
+| -------------------------------------- | ------------------------------------------- | ---------------------- | -------------------------------------- |
+| Híbrida: overlay + reescrita no export | Preview instantâneo sem corromper PDF       | Reescrever sempre      | Risco de quebrar fontes/layouts        |
+| API Routes + Prisma                    | Menos infra, repo único                     | Backend separado       | Overhead de config para 24h            |
+| Filesystem local                       | Simples, sem conta externa                  | S3/MinIO               | Config extra desnecessária             |
+| PDF.js client-side                     | Mais rápido, sem latência                   | Server-side            | Mais lento, precisa transferir bytes   |
+| OCR server-side (Tesseract.js)         | Não trava browser, mais recursos            | Client-side            | Travaria com PDFs grandes              |
+| NextAuth Credentials                   | Login genérico, sem dependência externa     | Google, GitHub         | Sem tempo para configurar OAuth em 24h |
+| styled-components 6                    | Template já configurado                     | Tailwind               | Não vale a pena trocar em 24h          |
+| Validar edits/highlights com Zod       | JSON sem validação aceita dados corrompidos | Tipagem TypeScript     | TS não valida runtime                  |
 
 ## Arquivos Para Ler
 
@@ -175,39 +176,39 @@ model DocumentVersion {
 }
 ```
 
-**`.env`:**
+**Validação Zod para campos JSON (`edits`, `highlights`):**
 
-```
-POSTGRES_USER=pdf_editor
-POSTGRES_PASSWORD=pdf_editor_secret
-POSTGRES_DB=pdf_editor
-
-DATABASE_URL="postgresql://pdf_editor:pdf_editor_secret@localhost:5432/pdf_editor"
-NEXTAUTH_URL="http://localhost:3000"
-NEXTAUTH_SECRET="dev-secret-change-in-production"
-```
-
-Exemplo em `.env.example`.
-
-**`src/lib/prisma.ts`:**
+Os campos `edits` e `highlights` são armazenados como `Json` no Prisma. Sem validação em runtime, dados corrompidos podem ser persistidos. Usar Zod para validar antes de salvar e ao carregar.
 
 ```typescript
-import { PrismaClient } from '@prisma/client';
+// src/lib/schemas.ts
+const TextEditSchema = z.object({
+  blockId: z.string(),
+  pageIndex: z.number().int().min(0),
+  originalText: z.string(),
+  newText: z.string(),
+});
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+const HighlightSchema = z.object({
+  id: z.string(),
+  pageIndex: z.number().int().min(0),
+  x: z.number(),
+  y: z.number(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  color: z.object({
+    name: z.string(),
+    hex: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+    opacity: z.number().min(0).max(1),
+  }),
+  text: z.string(),
+});
 
-export const prisma = globalForPrisma.prisma ?? new PrismaClient();
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+const EditsArraySchema = z.array(TextEditSchema);
+const HighlightsArraySchema = z.array(HighlightSchema);
 ```
 
-**Verificação:**
-
-```bash
-npx prisma migrate dev --name init
-npx prisma generate
-# Esperado: migrations criadas, client gerado
-```
+Validar em todo boundary que lê ou escreve JSON: API de salvar documento, API de carregar, export de PDF.
 
 ---
 
