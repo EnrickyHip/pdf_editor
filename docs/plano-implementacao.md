@@ -11,21 +11,21 @@ Template atual: Next.js 15 App Router, styled-components 6, TypeScript 5.8, Jest
 
 ## Escopo
 
-**Dentro:** upload, detecção, OCR, renderização, edição inline, inserção de texto, highlights, export, login (Google), salvar/carregar, histórico de versões (3), undo/redo, zoom, navegação entre páginas.
+**Dentro:** upload, detecção, OCR, renderização, edição inline, inserção de texto, highlights, export, login (Credentials), salvar/carregar, histórico de versões (3), undo/redo, zoom, navegação entre páginas.
 
 **Fora:** colaboração em tempo real, múltiplos usuários simultâneos, PDFs com senha, assinatura digital, múltiplos providers de auth.
 
 ## Decisões
 
-| Decisão | Justificativa | Alternativa descartada | Por que não |
-|---------|---------------|------------------------|-------------|
-| Híbrida: overlay + reescrita no export | Preview instantâneo sem corromper PDF | Reescrever sempre | Risco de quebrar fontes/layouts |
-| API Routes + Prisma | Menos infra, repo único | Backend separado | Overhead de config para 24h |
-| Filesystem local | Simples, sem conta externa | S3/MinIO | Config extra desnecessária |
-| PDF.js client-side | Mais rápido, sem latência | Server-side | Mais lento, precisa transferir bytes |
-| OCR server-side (Tesseract.js) | Não trava browser, mais recursos | Client-side | Travaria com PDFs grandes |
-| NextAuth Google | Único provider pedido | GitHub, credenciais | Não solicitado |
-| styled-components 6 | Template já configurado | Tailwind | Não vale a pena trocar em 24h |
+| Decisão                                | Justificativa                           | Alternativa descartada | Por que não                            |
+| -------------------------------------- | --------------------------------------- | ---------------------- | -------------------------------------- |
+| Híbrida: overlay + reescrita no export | Preview instantâneo sem corromper PDF   | Reescrever sempre      | Risco de quebrar fontes/layouts        |
+| API Routes + Prisma                    | Menos infra, repo único                 | Backend separado       | Overhead de config para 24h            |
+| Filesystem local                       | Simples, sem conta externa              | S3/MinIO               | Config extra desnecessária             |
+| PDF.js client-side                     | Mais rápido, sem latência               | Server-side            | Mais lento, precisa transferir bytes   |
+| OCR server-side (Tesseract.js)         | Não trava browser, mais recursos        | Client-side            | Travaria com PDFs grandes              |
+| NextAuth Credentials                   | Login genérico, sem dependência externa | Google, GitHub         | Sem tempo para configurar OAuth em 24h |
+| styled-components 6                    | Template já configurado                 | Tailwind               | Não vale a pena trocar em 24h          |
 
 ## Arquivos Para Ler
 
@@ -77,6 +77,7 @@ Template atual: Next.js 15 App Router, styled-components 6, TypeScript 5.8, Jest
 **Risco:** nenhum
 
 **Depois:**
+
 ```yaml
 services:
   postgres:
@@ -96,6 +97,7 @@ volumes:
 ```
 
 **Verificação:**
+
 ```bash
 docker compose up -d
 # Esperado: container postgres rodando na porta 5432
@@ -109,6 +111,7 @@ docker compose up -d
 **Risco:** baixo
 
 **Depois (package.json scripts):**
+
 ```json
 {
   "scripts": {
@@ -125,6 +128,7 @@ Instalar: `npm install prisma @prisma/client`
 Inicializar: `npx prisma init`
 
 **Schema (`prisma/schema.prisma`):**
+
 ```prisma
 generator client {
   provider = "prisma-client-js"
@@ -172,6 +176,7 @@ model DocumentVersion {
 ```
 
 **`.env`:**
+
 ```
 POSTGRES_USER=pdf_editor
 POSTGRES_PASSWORD=pdf_editor_secret
@@ -180,14 +185,12 @@ POSTGRES_DB=pdf_editor
 DATABASE_URL="postgresql://pdf_editor:pdf_editor_secret@localhost:5432/pdf_editor"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="dev-secret-change-in-production"
-
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
 ```
 
 Exemplo em `.env.example`.
 
 **`src/lib/prisma.ts`:**
+
 ```typescript
 import { PrismaClient } from '@prisma/client';
 
@@ -199,6 +202,7 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 ```
 
 **Verificação:**
+
 ```bash
 npx prisma migrate dev --name init
 npx prisma generate
@@ -215,20 +219,37 @@ npx prisma generate
 Instalar: `npm install next-auth`
 
 **`src/lib/auth.ts`:**
+
 ```typescript
 import NextAuth from 'next-auth';
-import Google from 'next-auth/providers/google';
+import Credentials from 'next-auth/providers/credentials';
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [Google],
+  providers: [
+    Credentials({
+      name: 'Credentials',
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        name: { label: 'Nome', type: 'text' },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email) return null;
+        return {
+          id: credentials.email as string,
+          email: credentials.email as string,
+          name: (credentials.name as string) || null,
+        };
+      },
+    }),
+  ],
   callbacks: {
     async signIn({ user }) {
       if (!user.email) return false;
       const db = (await import('@/lib/prisma')).prisma;
       await db.user.upsert({
         where: { email: user.email },
-        update: { name: user.name, image: user.image },
-        create: { email: user.email, name: user.name, image: user.image },
+        update: { name: user.name },
+        create: { email: user.email, name: user.name },
       });
       return true;
     },
@@ -240,12 +261,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 ```
 
 **`src/app/api/auth/[...nextauth]/route.ts`:**
+
 ```typescript
 import { handlers } from '@/lib/auth';
 export const { GET, POST } = handlers;
 ```
 
 **Verificação:**
+
 ```bash
 npm run build
 # Esperado: build sem erros
@@ -261,6 +284,7 @@ npm run build
 Componente com drag & drop + seletor de arquivo. Aceita apenas PDF. Valida tamanho (máx 20MB).
 
 **Comportamento:**
+
 - Arrastar PDF sobre a zona → destaque visual
 - Soltar ou selecionar → callback com o File
 - Arquivo > 20MB → mensagem de erro
@@ -274,6 +298,7 @@ Componente com drag & drop + seletor de arquivo. Aceita apenas PDF. Valida taman
 **Risco:** médio (operação de arquivo)
 
 **Comportamento:**
+
 - Recebe FormData com o PDF
 - Salva em `uploads/{uuid}.pdf`
 - Retorna `{ documentId, filePath, pageCount }`
@@ -286,11 +311,13 @@ Componente com drag & drop + seletor de arquivo. Aceita apenas PDF. Valida taman
 **Risco:** baixo
 
 **Lógica:**
+
 - Usar PDF.js para extrair texto de cada página
 - Se total de caracteres extraídos > threshold (ex: 50 por página) → texto nativo
 - Caso contrário → imagem escaneada, precisa de OCR
 
 **Verificação:**
+
 ```bash
 npm test -- --testPathPattern=pdfDetection
 # Esperado: testes passando
@@ -306,6 +333,7 @@ npm test -- --testPathPattern=pdfDetection
 Instalar: `npm install tesseract.js`
 
 **Comportamento:**
+
 - Recebe `documentId` + `pageIndex`
 - Abre o PDF, renderiza página como imagem (pdf-lib ou canvas)
 - Envia para Tesseract.js
@@ -313,6 +341,7 @@ Instalar: `npm install tesseract.js`
 - Progresso reportado via streaming (SSE ou polling)
 
 **Frontend:**
+
 - Botão "Processar OCR" visível apenas se PDF detectado como imagem
 - Barra de progresso por página
 - Feedback visual: "Processando página 3 de 15..."
@@ -327,6 +356,7 @@ Instalar: `npm install tesseract.js`
 Instalar: `npm install pdfjs-dist`
 
 **Comportamento:**
+
 - Recebe PDF como ArrayBuffer
 - Renderiza página atual em canvas via PDF.js
 - Suporte a zoom (escala do canvas)
@@ -340,6 +370,7 @@ Instalar: `npm install pdfjs-dist`
 **Risco:** médio
 
 Página principal que orquestra:
+
 - Upload Zone (quando sem documento)
 - Page Viewer + Text Overlay + Toolbar (quando com documento)
 
@@ -351,6 +382,7 @@ Página principal que orquestra:
 **Risco:** alto (precisão de posicionamento)
 
 **Comportamento:**
+
 - Recebe text blocks (posições do PDF.js ou OCR)
 - Renderiza div contentEditable em cada posição
 - Posicionamento absoluto sobre o canvas do PDF
@@ -364,6 +396,7 @@ Página principal que orquestra:
 **Risco:** alto
 
 **Zustand Store (`src/stores/editorStore.ts`):**
+
 - `edits: TextEdit[]` — texto alterado, posição, página
 - `highlights: Highlight[]`
 - `addEdit()`, `updateEdit()`, `removeEdit()`
@@ -377,6 +410,7 @@ Página principal que orquestra:
 **Risco:** médio
 
 **Comportamento:**
+
 - Selecionar texto no PDF → botão de highlight
 - Cores: amarelo (default), verde, azul, rosa
 - Highlights salvos como overlay com posição
@@ -406,6 +440,7 @@ Implementação FileStorage: salva em `uploads/` local.
 **Risco:** médio
 
 **Endpoints:**
+
 - `POST /api/documents` — salvar documento (requer auth)
 - `GET /api/documents` — listar documentos do usuário (requer auth)
 - `GET /api/documents/[id]` — carregar documento
@@ -423,6 +458,7 @@ Implementação FileStorage: salva em `uploads/` local.
 Instalar: `npm install pdf-lib`
 
 **Comportamento:**
+
 - Lê PDF original
 - Aplica edits (substitui texto, adiciona novos blocos)
 - Aplica highlights como anotações
@@ -436,6 +472,7 @@ Instalar: `npm install pdf-lib`
 **Risco:** baixo
 
 Usar `zustand/middleware` temporal:
+
 ```typescript
 import { temporal } from 'zundo';
 ```
@@ -478,11 +515,13 @@ Sidebar com thumbnails das páginas. Clicar navega para a página.
 **Arquivo:** `src/services/pdf/__tests__/pdfDetection.test.ts`, `src/services/ocr/__tests__/ocrService.test.ts`, etc.
 
 **Testes obrigatórios (conforme spec):**
+
 1. `pdfDetection.ts` — detecta PDF texto vs imagem com input conhecido
 2. `ocrService.ts` — input imagem → output texto esperado
 3. Export — editar texto e salvar não corrompe o PDF
 
 **Verificação:**
+
 ```bash
 npm test
 # Esperado: todos passando
@@ -512,7 +551,7 @@ npm run dev
 
 - [ ] Docker Compose com PostgreSQL rodando
 - [ ] Prisma migrations executadas
-- [ ] NextAuth com Google funcionando
+- [ ] NextAuth com Credentials funcionando
 - [ ] Upload de PDF funciona (drag & drop + seletor)
 - [ ] Detecção texto vs imagem correta
 - [ ] OCR processa PDFs imagem e retorna texto com posição

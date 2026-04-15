@@ -54,7 +54,7 @@ pdf_editor/
 ├── src/
 │   ├── app/
 │   │   ├── api/           -- API Routes
-│   │   │   ├── auth/      -- NextAuth (Google)
+│   │   │   ├── auth/      -- NextAuth (Credentials)
 │   │   │   ├── upload/    -- Upload de PDF
 │   │   │   ├── documents/ -- CRUD de documentos
 │   │   │   └── ocr/       -- Processamento OCR
@@ -91,7 +91,7 @@ pdf_editor/
 - **API Routes (não backend separado):** menos infra para 24h. Tudo em um repo.
 - **Filesystem local com adapter:** abstração permite trocar para S3 depois.
 - **PDF.js client-side + OCR server-side:** renderização rápida no browser, OCR não trava com PDFs grandes.
-- **NextAuth (Google):** login opcional. Sem login = edita e exporta. Com login = salva e tem histórico.
+- **NextAuth (Credentials):** login opcional via credenciais genéricas. Sem login = edita e exporta. Com login = salva e tem histórico.
 
 ## Regras de Negócio
 
