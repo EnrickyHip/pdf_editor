@@ -275,13 +275,6 @@ Componente com drag & drop + seletor de arquivo. Aceita apenas PDF. Valida taman
 - Se total de caracteres extraídos > threshold (ex: 50 por página) → texto nativo
 - Caso contrário → imagem escaneada, precisa de OCR
 
-**Verificação:**
-
-```bash
-npm test -- --testPathPattern=pdfDetection
-# Esperado: testes passando
-```
-
 ---
 
 ### Fase 3: OCR
