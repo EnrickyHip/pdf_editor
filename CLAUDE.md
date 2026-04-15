@@ -78,12 +78,57 @@ pdf_editor/
 ## Convenções
 
 - **Idioma do código:** en para nomes, pt-BR para strings/UI
+- **Nomes:** variáveis e parâmetros descritivos, mínimo 3 caracteres. Nunca `e`, `i`, `x` — usar `event`, `index`, `item`. Nunca `res` — usar `response`.
 - **Formatação:** Prettier (singleQuote, semi, trailingComma all, tabWidth 2)
 - **Imports:** absolutos com `@/` prefix
 - **Componentes:** PascalCase para arquivos e nomes
 - **Serviços:** camelCase para funções, organizados por domínio
 - **Styled-components:** tema em `src/styles/theme.ts`, tipos em `styled.d.ts`
 - **Erros:** throw Error com mensagem descritiva em pt-BR
+
+## Design System
+
+Tema em `src/styles/theme.ts`. Usar tokens do tema, nunca valores hardcoded.
+
+### Paleta
+
+| Token                  | Uso                     | Valor     |
+| ---------------------- | ----------------------- | --------- |
+| `colors.background`    | Fundo da página         | `#F8F9FA` |
+| `colors.surface`       | Cards, modals, inputs   | `#FFFFFF` |
+| `colors.text`          | Texto primário          | `#1A1A2E` |
+| `colors.textSecondary` | Labels, hints           | `#6B7280` |
+| `colors.accent`        | Botões primários, links | `#4F6D7A` |
+| `colors.accentHover`   | Hover de ações          | `#3A5561` |
+| `colors.border`        | Bordas de inputs, cards | `#E5E7EB` |
+| `colors.error`         | Mensagens de erro       | `#DC2626` |
+| `colors.success`       | Mensagens de sucesso    | `#059669` |
+
+### Bordas
+
+| Token              | Uso            |
+| ------------------ | -------------- |
+| `radius.sm` (4px)  | Inputs, botões |
+| `radius.md` (6px)  | Cards          |
+| `radius.lg` (10px) | Modais         |
+
+### Tipografia
+
+- Fonte: system stack (`-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`)
+- Tamanhos via `clamp()` — não usar `px` fixo para texto
+- Peso: regular (400) para corpo, semibold (600) para títulos
+
+### Botões
+
+- **Primary:** fundo `accent`, texto branco, sem borda
+- **Secondary:** fundo transparente, texto `accent`, borda `border`
+- **Ghost:** fundo transparente, texto `textSecondary`, sem borda
+
+### Inputs
+
+- Borda `border`, radius `sm`, padding `0.5rem 0.75rem`
+- Focus: outline 2px `accent` (global)
+- Placeholder: `textSecondary`
 
 ## Decisões de Arquitetura
 
