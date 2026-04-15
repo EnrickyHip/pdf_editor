@@ -1,17 +1,23 @@
-# NextJS Template With Typescript and Styled Components 
+# PDF Editor
 
-## This is a NextJS template with:
+Editor de PDF no browser. Upload, OCR, edição inline e exportação.
 
-<ul>
-  <li>Typescript</li>
-  <li>Styled Components</li>
-  <li>Jest</li>
-  <li>Prettier</li>
-  <li>ESLint</li>
-</ul>
+## Stack
 
-## Command to create a project with the example
+- Next.js 15 + App Router
+- React 19
+- TypeScript 5.8
+- styled-components 6
 
-```shell
-npx create-next-app my-app --example https://github.com/EnrickyHip/next-ts-styled-components-example
+## Desenvolvimento
+
+```bash
+npm install
+npm run dev
+```
+
+## Testes
+
+```bash
+npm test
 ```
