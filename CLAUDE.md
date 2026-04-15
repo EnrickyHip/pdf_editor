@@ -91,7 +91,7 @@ pdf_editor/
 - **API Routes (não backend separado):** menos infra para 24h. Tudo em um repo.
 - **Filesystem local com adapter:** abstração permite trocar para S3 depois.
 - **PDF.js client-side + OCR server-side:** renderização rápida no browser, OCR não trava com PDFs grandes.
-- **NextAuth (Credentials):** login opcional via credenciais genéricas. Sem login = edita e exporta. Com login = salva e tem histórico.
+- **NextAuth (Credentials):** login com email + senha (bcrypt). Sem login = edita e exporta. Com login = salva e tem histórico.
 
 ## Regras de Negócio
 
@@ -99,7 +99,7 @@ pdf_editor/
 - **OCR:** processado por página com progresso
 - **Histórico:** mantém últimas 3 versões por documento
 - **Undo/Redo:** limite de 50 passos
-- **Auth:** salvar/carregar/histórico requerem login. Editar e exportar não.
+- **Auth:** salvar/carregar/histórico requerem login (email + senha). Editar e exportar não.
 
 ## Limites (Boundaries)
 

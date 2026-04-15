@@ -16,7 +16,7 @@ Editor de PDF no browser. O usuário faz upload de um PDF (que pode ser imagem e
 
 - Upload de PDF (arrastar ou selecionar)
 - Detectar se o PDF tem texto extraível ou se é imagem escaneada
-- Permitir login com NextAuth (Credentials), usuário poderá atualizar PDFs sem login, mas o armazenamento e histórico somente se tiver login.
+- Permitir login com NextAuth (Credentials + senha). Usuário pode editar e exportar sem login, mas armazenamento e histórico somente com login. Registro separado com email, senha e nome opcional.
 - Se imagem: aplicar OCR e extrair texto com posicionamento
 - Renderizar PDF com texto editável sobreposto
 - Editar texto existente inline (clicar no texto, alterar)

@@ -211,61 +211,20 @@ npx prisma generate
 
 ---
 
-### Fase 1.3: NextAuth
+### Fase 1.3: NextAuth com Senha
 
-**Arquivo:** `src/app/api/auth/[...nextauth]/route.ts`
+**Arquivo:** `src/app/api/auth/[...nextauth]/route.ts`, `src/lib/auth.ts`
 **Risco:** baixo
 
-Instalar: `npm install next-auth`
+Instalar: `npm install next-auth bcryptjs`
 
-**`src/lib/auth.ts`:**
+**Schema:** campo `password String` adicionado ao model `User`.
 
-```typescript
-import NextAuth from 'next-auth';
-import Credentials from 'next-auth/providers/credentials';
+**`src/lib/auth.ts`:** Credentials provider com email + senha. `authorize` busca usuário no banco, compara senha com `bcrypt.compare`. Callbacks `session`/`jwt` propagam `user.id`. Página custom de signIn aponta para `/login`.
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [
-    Credentials({
-      name: 'Credentials',
-      credentials: {
-        email: { label: 'Email', type: 'email' },
-        name: { label: 'Nome', type: 'text' },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email) return null;
-        return {
-          id: credentials.email as string,
-          email: credentials.email as string,
-          name: (credentials.name as string) || null,
-        };
-      },
-    }),
-  ],
-  callbacks: {
-    async signIn({ user }) {
-      if (!user.email) return false;
-      const db = (await import('@/lib/prisma')).prisma;
-      await db.user.upsert({
-        where: { email: user.email },
-        update: { name: user.name },
-        create: { email: user.email, name: user.name },
-      });
-      return true;
-    },
-    async session({ session }) {
-      return session;
-    },
-  },
-});
-```
+**`src/app/api/auth/register/route.ts`:** cria usuário com senha hash (bcrypt, 10 rounds). Valida email único e senha mínima de 6 caracteres.
 
-**`src/app/api/auth/[...nextauth]/route.ts`:**
-
-```typescript
-import { handlers } from '@/lib/auth';
-export const { GET, POST } = handlers;
-```
+**`src/lib/prisma.ts`:** atualizado para Prisma v7 com `@prisma/adapter-pg`.
 
 **Verificação:**
 
