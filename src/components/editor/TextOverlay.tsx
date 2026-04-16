@@ -44,6 +44,7 @@ function TextOverlay({ pageIndex, zoom }: TextOverlayProps) {
   const textBlocks = useEditorStore((state) => state.textBlocks);
   const updateBlockText = useEditorStore((state) => state.updateBlockText);
   const editableRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const initializedBlocks = useRef<Set<string>>(new Set());
 
   const handleBlur = useCallback(
     (blockId: string) => {
@@ -77,11 +78,13 @@ function TextOverlay({ pageIndex, zoom }: TextOverlayProps) {
           ref={(element) => {
             if (element) {
               editableRefs.current.set(block.id, element);
-              if (element.textContent !== block.text) {
+              if (!initializedBlocks.current.has(block.id)) {
                 element.textContent = block.text;
+                initializedBlocks.current.add(block.id);
               }
             } else {
               editableRefs.current.delete(block.id);
+              initializedBlocks.current.delete(block.id);
             }
           }}
           contentEditable
@@ -90,9 +93,10 @@ function TextOverlay({ pageIndex, zoom }: TextOverlayProps) {
           style={{
             left: `${block.x * zoom}px`,
             top: `${block.y * zoom}px`,
+            width: `${block.width * zoom}px`,
+            height: `${block.height * zoom}px`,
             fontSize: `${block.fontSize * zoom}px`,
             fontFamily: block.fontFamily,
-            minHeight: `${block.fontSize * zoom}px`,
           }}
           onBlur={() => handleBlur(block.id)}
           onKeyDown={handleKeyDown}
