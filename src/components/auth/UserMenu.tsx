@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import styled from 'styled-components';
 
 const Container = styled.div`
@@ -59,6 +60,23 @@ const LogoutButton = styled.button`
   }
 `;
 
+const DocumentsLink = styled.button`
+  display: block;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 0.875rem;
+  color: ${({ theme }) => theme.colors.text};
+  transition: background 150ms;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+
+  &:hover {
+    background: ${({ theme }) => theme.colors.background};
+  }
+`;
+
 interface UserMenuProps {
   userName: string;
 }
@@ -66,6 +84,7 @@ interface UserMenuProps {
 export function UserMenu({ userName }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -83,6 +102,14 @@ export function UserMenu({ userName }: UserMenuProps) {
       {open && (
         <Dropdown>
           <UserName>{userName}</UserName>
+          <DocumentsLink
+            onClick={() => {
+              setOpen(false);
+              router.push('/documents');
+            }}
+          >
+            Meus Documentos
+          </DocumentsLink>
           <LogoutButton
             onClick={() => {
               setOpen(false);

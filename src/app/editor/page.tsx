@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import styled from 'styled-components';
 import { UploadZone } from '@/components/editor/UploadZone';
@@ -218,6 +219,19 @@ const RetryButton = styled.button`
   }
 `;
 
+const ToolbarActionGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-left: auto;
+`;
+
+const SaveStatus = styled.span<{ $variant: 'success' | 'info' }>`
+  font-size: 0.75rem;
+  color: ${({ theme, $variant }) =>
+    $variant === 'success' ? theme.colors.success : theme.colors.textSecondary};
+`;
+
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3.0;
 const ZOOM_STEP = 0.25;
@@ -233,6 +247,10 @@ interface EditorPageState {
   errorMessage: string | null;
   currentPage: number;
   zoom: number;
+  savedDocumentId: string | null;
+  isSaving: boolean;
+  isExporting: boolean;
+  saveMessage: string | null;
 }
 
 const INITIAL_STATE: EditorPageState = {
@@ -246,13 +264,117 @@ const INITIAL_STATE: EditorPageState = {
   errorMessage: null,
   currentPage: 1,
   zoom: 1.0,
+  savedDocumentId: null,
+  isSaving: false,
+  isExporting: false,
+  saveMessage: null,
 };
 
 export default function EditorPage() {
+  return (
+    <Suspense fallback={<div>Carregando...</div>}>
+      <EditorPageContent />
+    </Suspense>
+  );
+}
+
+function EditorPageContent() {
   const { data: session, status } = useSession();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [state, setState] = useState<EditorPageState>(INITIAL_STATE);
   const setTextBlocks = useEditorStore((s) => s.setTextBlocks);
   const resetEditorStore = useEditorStore((s) => s.reset);
+
+  const documentIdParam = searchParams.get('documentId');
+
+  useEffect(() => {
+    if (documentIdParam && session?.user && state.mode === 'idle') {
+      handleLoadDocumentInternal(documentIdParam);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentIdParam, session]);
+
+  async function handleLoadDocumentInternal(documentId: string) {
+    if (!session?.user) return;
+
+    setState((previous) => ({ ...previous, mode: 'loading' }));
+
+    try {
+      const response = await fetch(`/api/documents/${documentId}`);
+      if (!response.ok) throw new Error('Erro ao carregar documento.');
+
+      const doc = await response.json();
+
+      const storageResponse = await fetch('/api/files', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filePath: doc.originalPath,
+        }),
+      });
+
+      if (!storageResponse.ok) throw new Error('Erro ao carregar PDF.');
+
+      const blob = await storageResponse.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+      const pdfData = new Uint8Array(arrayBuffer);
+
+      let textBlocks: TextBlock[] = [];
+      try {
+        textBlocks = await extractPageTexts(pdfData);
+      } catch {
+        textBlocks = [];
+      }
+
+      resetEditorStore();
+      setTextBlocks(textBlocks);
+
+      const savedEdits = doc.edits ?? [];
+      const savedHighlights = doc.highlights ?? [];
+
+      for (const edit of savedEdits) {
+        const block = textBlocks.find((item) => item.id === edit.blockId);
+        if (block) {
+          useEditorStore.getState().updateBlockText(edit.blockId, edit.newText);
+        }
+      }
+
+      for (const highlight of savedHighlights) {
+        useEditorStore.getState().addHighlight(highlight);
+      }
+
+      setState({
+        mode: 'editing',
+        uploadResult: {
+          documentId: doc.id,
+          filePath: doc.originalPath,
+          fileName: doc.name,
+          pageCount: doc.pages,
+        },
+        pdfData,
+        detection: doc.isOcr ? { hasText: false, textLength: 0, pagesDetected: doc.pages } : null,
+        ocrResults: null,
+        textBlocks,
+        ocrProgress: null,
+        errorMessage: null,
+        currentPage: 1,
+        zoom: 1.0,
+        savedDocumentId: doc.id,
+        isSaving: false,
+        isExporting: false,
+        saveMessage: null,
+      });
+    } catch (loadError) {
+      const message =
+        loadError instanceof Error ? loadError.message : 'Erro ao carregar documento.';
+      setState({
+        ...INITIAL_STATE,
+        mode: 'error',
+        errorMessage: message,
+      });
+    }
+  }
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -289,32 +411,23 @@ export default function EditorPage() {
 
         if (detection && !detection.hasText) {
           setState({
+            ...INITIAL_STATE,
             mode: 'ocr',
             uploadResult,
             pdfData,
             detection,
-            ocrResults: null,
-            textBlocks: [],
-            ocrProgress: null,
-            errorMessage: null,
-            currentPage: 1,
-            zoom: 1.0,
           });
         } else {
           const nativeBlocks = await extractPageTexts(pdfData);
           setTextBlocks(nativeBlocks);
 
           setState({
+            ...INITIAL_STATE,
             mode: 'editing',
             uploadResult,
             pdfData,
             detection,
-            ocrResults: null,
             textBlocks: nativeBlocks,
-            ocrProgress: null,
-            errorMessage: null,
-            currentPage: 1,
-            zoom: 1.0,
           });
         }
       } catch (uploadError) {
@@ -405,6 +518,99 @@ export default function EditorPage() {
     }));
   }, []);
 
+  const edits = useEditorStore((s) => s.edits);
+  const insertions = useEditorStore((s) => s.insertions);
+  const highlights = useEditorStore((s) => s.highlights);
+
+  const handleSave = useCallback(async () => {
+    if (!state.uploadResult || !session?.user) return;
+
+    setState((previous) => ({ ...previous, isSaving: true, saveMessage: null }));
+
+    try {
+      const response = await fetch('/api/documents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: state.uploadResult.fileName,
+          originalPath: state.uploadResult.filePath,
+          pages: state.uploadResult.pageCount,
+          isOcr: state.detection ? !state.detection.hasText : false,
+          edits,
+          highlights,
+          documentId: state.savedDocumentId ?? undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error ?? 'Erro ao salvar documento.');
+      }
+
+      const data = await response.json();
+
+      setState((previous) => ({
+        ...previous,
+        savedDocumentId: data.id,
+        isSaving: false,
+        saveMessage: 'Salvo com sucesso.',
+      }));
+
+      setTimeout(() => {
+        setState((previous) => ({ ...previous, saveMessage: null }));
+      }, 3000);
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : 'Erro ao salvar.';
+      setState((previous) => ({
+        ...previous,
+        isSaving: false,
+        saveMessage: message,
+      }));
+    }
+  }, [state.uploadResult, state.savedDocumentId, state.detection, session, edits, highlights]);
+
+  const handleExport = useCallback(async () => {
+    if (!state.uploadResult) return;
+
+    setState((previous) => ({ ...previous, isExporting: true }));
+
+    try {
+      const response = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filePath: state.uploadResult.filePath,
+          edits,
+          insertions,
+          highlights,
+          textBlocks: state.textBlocks,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error ?? 'Erro ao exportar PDF.');
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `editado-${state.uploadResult.fileName}`;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      setState((previous) => ({ ...previous, isExporting: false }));
+    } catch (exportError) {
+      const message = exportError instanceof Error ? exportError.message : 'Erro ao exportar.';
+      setState((previous) => ({
+        ...previous,
+        isExporting: false,
+        errorMessage: message,
+      }));
+    }
+  }, [state.uploadResult, state.textBlocks, edits, insertions, highlights]);
+
   const isEditing = state.mode === 'editing' && state.pdfData && state.uploadResult;
   const canZoomIn = state.zoom < MAX_ZOOM;
   const canZoomOut = state.zoom > MIN_ZOOM;
@@ -415,6 +621,11 @@ export default function EditorPage() {
       <Header>
         <Title>Editor de PDF</Title>
         <HeaderActions>
+          {session?.user && (
+            <Button variant="ghost" onClick={() => router.push('/documents')}>
+              Meus Documentos
+            </Button>
+          )}
           {isEditing && (
             <Button variant="secondary" onClick={handleReset}>
               Novo PDF
@@ -450,6 +661,17 @@ export default function EditorPage() {
               {state.uploadResult.fileName} — {state.uploadResult.pageCount} página(s)
             </span>
           </ToolbarGroup>
+          <ToolbarActionGroup>
+            {session?.user && (
+              <Button variant="secondary" onClick={handleSave} disabled={state.isSaving}>
+                {state.isSaving ? 'Salvando...' : 'Salvar'}
+              </Button>
+            )}
+            <Button variant="primary" onClick={handleExport} disabled={state.isExporting}>
+              {state.isExporting ? 'Exportando...' : 'Exportar PDF'}
+            </Button>
+            {state.saveMessage && <SaveStatus $variant="success">{state.saveMessage}</SaveStatus>}
+          </ToolbarActionGroup>
         </Toolbar>
       )}
 
