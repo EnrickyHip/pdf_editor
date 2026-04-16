@@ -102,8 +102,8 @@ src/
 ### Detecção PDF-texto vs PDF-imagem
 
 - Extrair texto com PDF.js (`getTextContent`)
-- Se quantidade de texto > threshold mínimo → texto nativo
-- Caso contrário → imagem escaneada, precisa de OCR
+- Se tem qualquer texto extraível → texto nativo
+- Se não tem → imagem escaneada, precisa de OCR
 
 ### Edição
 

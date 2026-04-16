@@ -2,6 +2,8 @@
 
 > Autocontido. Sessão nova, sem histórico, executa do início ao fim.
 > Estimativa: ~12-16h de implementação.
+>
+> **Nota:** Testes unitários e de integração devem ser escritos APENAS na Fase 10. Antes disso, foco na implementação funcional.
 
 ## Contexto
 
@@ -273,8 +275,8 @@ Componente com drag & drop + seletor de arquivo. Aceita apenas PDF. Valida taman
 **Lógica:**
 
 - Usar PDF.js para extrair texto de cada página
-- Se total de caracteres extraídos > threshold (ex: 50 por página) → texto nativo
-- Caso contrário → imagem escaneada, precisa de OCR
+- Se tem qualquer texto extraível → texto nativo
+- Se não tem → imagem escaneada, precisa de OCR
 
 ---
 

@@ -6,8 +6,12 @@ import styled from 'styled-components';
 import { UploadZone } from '@/components/editor/UploadZone';
 import { AuthButtons } from '@/components/auth/LoginButton';
 import { UserMenu } from '@/components/auth/UserMenu';
-import type { UploadResult, PDFDetectionResult } from '@/types/pdf';
-import type { EditorMode } from '@/types/editor';
+import { Button } from '@/components/ui/Button';
+import { ProgressIndicator } from '@/components/ui/ProgressIndicator';
+import { detectPdfType } from '@/services/pdf/pdfDetection';
+import { ocrDocument, ocrWordsToTextBlocks } from '@/services/ocr/ocrService';
+import type { UploadResult, PDFDetectionResult, OCRResult } from '@/types/pdf';
+import type { EditorMode, TextBlock } from '@/types/editor';
 
 const PageContainer = styled.div`
   display: flex;
@@ -72,49 +76,105 @@ const StatusMessage = styled.div<{ $variant: 'info' | 'error' | 'success' }>`
   }};
 `;
 
-const DetectionResult = styled.div`
-  padding: 1rem;
+const ResultPanel = styled.div`
+  padding: 1.5rem;
   border-radius: ${({ theme }) => theme.radius.md};
   background: ${({ theme }) => theme.colors.surface};
   border: 1px solid ${({ theme }) => theme.colors.border};
-  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+`;
+
+const ResultHeader = styled.div`
   text-align: center;
 `;
 
-const DetectionLabel = styled.p`
+const ResultLabel = styled.p`
   font-size: 0.8125rem;
   color: ${({ theme }) => theme.colors.textSecondary};
   margin-bottom: 0.25rem;
 `;
 
-const DetectionValue = styled.p`
+const ResultValue = styled.p`
   font-size: 0.9375rem;
   font-weight: 600;
   color: ${({ theme }) => theme.colors.text};
 `;
 
-interface UploadState {
+const ActionsRow = styled.div`
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+`;
+
+const OcrSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid ${({ theme }) => theme.colors.border};
+`;
+
+const TextPreview = styled.div`
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 0.75rem;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme }) => theme.colors.background};
+  font-size: 0.8125rem;
+  color: ${({ theme }) => theme.colors.text};
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+`;
+
+const RetryButton = styled.button`
+  display: block;
+  margin: 0.5rem auto 0;
+  background: none;
+  border: none;
+  color: ${({ theme }) => theme.colors.accent};
+  cursor: pointer;
+  font-size: 0.8125rem;
+  text-decoration: underline;
+
+  &:hover {
+    color: ${({ theme }) => theme.colors.accentHover};
+  }
+`;
+
+interface EditorPageState {
   mode: EditorMode;
-  result: UploadResult | null;
+  uploadResult: UploadResult | null;
+  pdfData: Uint8Array | null;
   detection: PDFDetectionResult | null;
+  ocrResults: OCRResult[] | null;
+  textBlocks: TextBlock[];
+  ocrProgress: { current: number; total: number; pageProgress: number; status: string } | null;
   errorMessage: string | null;
 }
 
+const INITIAL_STATE: EditorPageState = {
+  mode: 'idle',
+  uploadResult: null,
+  pdfData: null,
+  detection: null,
+  ocrResults: null,
+  textBlocks: [],
+  ocrProgress: null,
+  errorMessage: null,
+};
+
 export default function EditorPage() {
   const { data: session, status } = useSession();
-  const [uploadState, setUploadState] = useState<UploadState>({
-    mode: 'idle',
-    result: null,
-    detection: null,
-    errorMessage: null,
-  });
+  const [state, setState] = useState<EditorPageState>(INITIAL_STATE);
 
   const handleUpload = useCallback(async (file: File) => {
-    setUploadState({
+    setState({
+      ...INITIAL_STATE,
       mode: 'loading',
-      result: null,
-      detection: null,
-      errorMessage: null,
     });
 
     try {
@@ -127,36 +187,108 @@ export default function EditorPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        throw new Error(data?.error || 'Erro ao fazer upload do arquivo.');
+        const responseData = await response.json().catch(() => null);
+        throw new Error(responseData?.error ?? 'Erro ao fazer upload do arquivo.');
       }
 
       const uploadResult: UploadResult = await response.json();
 
-      setUploadState({
-        mode: 'editing',
-        result: uploadResult,
-        detection: null,
-        errorMessage: null,
-      });
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfData = new Uint8Array(arrayBuffer);
+
+      let detection: PDFDetectionResult | null = null;
+      try {
+        detection = detectPdfType(pdfData);
+      } catch {
+        detection = null;
+      }
+
+      if (detection && !detection.hasText) {
+        setState({
+          mode: 'ocr',
+          uploadResult,
+          pdfData,
+          detection,
+          ocrResults: null,
+          textBlocks: [],
+          ocrProgress: null,
+          errorMessage: null,
+        });
+      } else {
+        setState({
+          mode: 'editing',
+          uploadResult,
+          pdfData,
+          detection,
+          ocrResults: null,
+          textBlocks: [],
+          ocrProgress: null,
+          errorMessage: null,
+        });
+      }
     } catch (uploadError) {
       const message = uploadError instanceof Error ? uploadError.message : 'Erro desconhecido.';
-      setUploadState({
+      setState({
+        ...INITIAL_STATE,
         mode: 'error',
-        result: null,
-        detection: null,
         errorMessage: message,
       });
     }
   }, []);
 
-  const handleReset = useCallback(() => {
-    setUploadState({
-      mode: 'idle',
-      result: null,
-      detection: null,
+  const handleStartOcr = useCallback(async () => {
+    if (!state.pdfData || !state.uploadResult) return;
+
+    const totalPages = state.uploadResult.pageCount;
+    const documentId = state.uploadResult.documentId;
+
+    setState((previous) => ({
+      ...previous,
+      mode: 'ocr',
+      ocrProgress: { current: 1, total: totalPages, pageProgress: 0, status: 'Iniciando' },
       errorMessage: null,
-    });
+    }));
+
+    try {
+      const response = await fetch('/api/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documentId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error ?? 'Erro ao processar OCR.');
+      }
+
+      const ocrData = await response.json();
+
+      const textBlocks = ocrData.blocks;
+
+      setState((previous) => ({
+        ...previous,
+        mode: 'editing',
+        ocrResults:
+          ocrData.words?.map((w: { text: string; words: unknown[] }) => ({
+            text: w.text,
+            words: w.words ?? [],
+          })) ?? [],
+        textBlocks,
+        ocrProgress: null,
+      }));
+    } catch (ocrError) {
+      const message = ocrError instanceof Error ? ocrError.message : 'Erro ao processar OCR.';
+      setState((previous) => ({
+        ...previous,
+        mode: 'error',
+        ocrProgress: null,
+        errorMessage: message,
+      }));
+    }
+  }, [state.uploadResult]);
+
+  const handleReset = useCallback(() => {
+    setState(INITIAL_STATE);
   }, []);
 
   return (
@@ -172,49 +304,90 @@ export default function EditorPage() {
 
       <Content>
         <UploadWrapper>
-          {uploadState.mode === 'idle' && <UploadZone onUpload={handleUpload} />}
+          {state.mode === 'idle' && <UploadZone onUpload={handleUpload} />}
 
-          {uploadState.mode === 'loading' && <UploadZone onUpload={handleUpload} isUploading />}
+          {state.mode === 'loading' && <UploadZone onUpload={handleUpload} isUploading />}
 
-          {uploadState.mode === 'editing' && uploadState.result && (
-            <DetectionResult>
-              <DetectionLabel>Arquivo enviado</DetectionLabel>
-              <DetectionValue>{uploadState.result.fileName}</DetectionValue>
-              <DetectionLabel>{uploadState.result.pageCount} página(s)</DetectionLabel>
-              {uploadState.detection && (
-                <>
-                  <DetectionLabel>
-                    {uploadState.detection.hasText
-                      ? 'PDF com texto nativo detectado'
-                      : 'PDF sem texto nativo (pode precisar de OCR)'}
-                  </DetectionLabel>
-                  <DetectionLabel>
-                    Caracteres detectados: {uploadState.detection.textLength}
-                  </DetectionLabel>
-                </>
+          {state.mode === 'ocr' && state.uploadResult && (
+            <ResultPanel>
+              <ResultHeader>
+                <ResultLabel>Arquivo enviado</ResultLabel>
+                <ResultValue>{state.uploadResult.fileName}</ResultValue>
+                <ResultLabel>{state.uploadResult.pageCount} página(s)</ResultLabel>
+              </ResultHeader>
+
+              {state.detection && (
+                <StatusMessage $variant="info">
+                  PDF sem texto nativo detectado — é necessário processar OCR para extrair o texto.
+                </StatusMessage>
               )}
-              <StatusMessage $variant="success">Upload concluído com sucesso.</StatusMessage>
-            </DetectionResult>
+
+              {state.ocrProgress ? (
+                <OcrSection>
+                  <ProgressIndicator
+                    progress={state.ocrProgress.pageProgress}
+                    label={`Página ${state.ocrProgress.current} de ${state.ocrProgress.total} — ${state.ocrProgress.status}`}
+                  />
+                </OcrSection>
+              ) : (
+                <ActionsRow>
+                  <Button variant="primary" onClick={handleStartOcr}>
+                    Processar OCR
+                  </Button>
+                  <Button variant="ghost" onClick={handleReset}>
+                    Cancelar
+                  </Button>
+                </ActionsRow>
+              )}
+            </ResultPanel>
           )}
 
-          {uploadState.mode === 'error' && uploadState.errorMessage && (
+          {state.mode === 'editing' && state.uploadResult && (
+            <ResultPanel>
+              <ResultHeader>
+                <ResultLabel>Arquivo enviado</ResultLabel>
+                <ResultValue>{state.uploadResult.fileName}</ResultValue>
+                <ResultLabel>{state.uploadResult.pageCount} página(s)</ResultLabel>
+              </ResultHeader>
+
+              {state.detection && (
+                <StatusMessage $variant={state.detection.hasText ? 'success' : 'info'}>
+                  {state.detection.hasText ? 'PDF com texto nativo' : 'PDF processado com OCR'}
+                </StatusMessage>
+              )}
+
+              {state.ocrResults && state.ocrResults.length > 0 && (
+                <OcrSection>
+                  <ResultLabel>
+                    Texto extraído via OCR ({state.textBlocks.length} bloco(s) encontrado(s))
+                  </ResultLabel>
+                  {state.ocrResults.some((result) => result.text.length > 0) ? (
+                    <TextPreview>
+                      {state.ocrResults
+                        .map((result, index) => `--- Página ${index + 1} ---\n${result.text}`)
+                        .join('\n\n')}
+                    </TextPreview>
+                  ) : (
+                    <StatusMessage $variant="info">
+                      Nenhum texto foi detectado nas páginas do PDF.
+                    </StatusMessage>
+                  )}
+                </OcrSection>
+              )}
+
+              <ActionsRow>
+                <Button variant="secondary" onClick={handleReset}>
+                  Enviar outro PDF
+                </Button>
+              </ActionsRow>
+            </ResultPanel>
+          )}
+
+          {state.mode === 'error' && state.errorMessage && (
             <>
               <UploadZone onUpload={handleUpload} />
-              <StatusMessage $variant="error">{uploadState.errorMessage}</StatusMessage>
-              <button
-                onClick={handleReset}
-                style={{
-                  display: 'block',
-                  margin: '0.5rem auto 0',
-                  background: 'none',
-                  border: 'none',
-                  color: '#4F6D7A',
-                  cursor: 'pointer',
-                  fontSize: '0.8125rem',
-                }}
-              >
-                Tentar novamente
-              </button>
+              <StatusMessage $variant="error">{state.errorMessage}</StatusMessage>
+              <RetryButton onClick={handleReset}>Tentar novamente</RetryButton>
             </>
           )}
         </UploadWrapper>

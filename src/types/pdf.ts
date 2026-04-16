@@ -12,7 +12,6 @@ export interface PDFDocument {
 export interface PDFDetectionResult {
   hasText: boolean;
   textLength: number;
-  threshold: number;
   pagesDetected: number;
 }
 

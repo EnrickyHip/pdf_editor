@@ -38,3 +38,6 @@ next-env.d.ts
 # pdf editor
 /uploads/
 *.pdf
+
+# tesseract OCR models
+*.traineddata

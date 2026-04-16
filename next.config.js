@@ -4,6 +4,8 @@ const nextConfig = {
   compiler: {
     styledComponents: true,
   },
+  transpilePackages: ['pdfjs-dist'],
+  serverExternalPackages: ['@napi-rs/canvas', 'tesseract.js'],
 };
 
 module.exports = nextConfig;
