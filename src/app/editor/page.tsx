@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
+import dynamic from 'next/dynamic';
 import styled from 'styled-components';
 import { UploadZone } from '@/components/editor/UploadZone';
 import { AuthButtons } from '@/components/auth/LoginButton';
@@ -9,9 +10,21 @@ import { UserMenu } from '@/components/auth/UserMenu';
 import { Button } from '@/components/ui/Button';
 import { ProgressIndicator } from '@/components/ui/ProgressIndicator';
 import { detectPdfType } from '@/services/pdf/pdfDetection';
-import { ocrDocument, ocrWordsToTextBlocks } from '@/services/ocr/ocrService';
 import type { UploadResult, PDFDetectionResult, OCRResult } from '@/types/pdf';
 import type { EditorMode, TextBlock } from '@/types/editor';
+
+const PageViewer = dynamic(
+  () => import('@/components/editor/PageViewer').then((module) => ({ default: module.PageViewer })),
+  { ssr: false },
+);
+
+const PageNavigator = dynamic(
+  () =>
+    import('@/components/editor/PageNavigator').then((module) => ({
+      default: module.PageNavigator,
+    })),
+  { ssr: false },
+);
 
 const PageContainer = styled.div`
   display: flex;
@@ -26,6 +39,7 @@ const Header = styled.header`
   padding: 0.75rem 1rem;
   border-bottom: 1px solid ${({ theme }) => theme.colors.border};
   background: ${({ theme }) => theme.colors.surface};
+  flex-shrink: 0;
 `;
 
 const Title = styled.h1`
@@ -34,18 +48,89 @@ const Title = styled.h1`
   color: ${({ theme }) => theme.colors.text};
 `;
 
-const Content = styled.main`
-  flex: 1;
+const HeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+`;
+
+const Toolbar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid ${({ theme }) => theme.colors.border};
+  background: ${({ theme }) => theme.colors.surface};
+  flex-shrink: 0;
+`;
+
+const ToolbarGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+`;
+
+const ToolbarSeparator = styled.div`
+  width: 1px;
+  height: 1.25rem;
+  background: ${({ theme }) => theme.colors.border};
+  margin: 0 0.25rem;
+`;
+
+const ZoomLabel = styled.span`
+  font-size: 0.8125rem;
+  color: ${({ theme }) => theme.colors.textSecondary};
+  min-width: 3rem;
+  text-align: center;
+`;
+
+const ToolbarButton = styled.button<{ $active?: boolean }>`
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2rem;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme, $active }) => ($active ? `${theme.colors.accent}15` : 'transparent')};
+  color: ${({ theme, $active }) => ($active ? theme.colors.accent : theme.colors.textSecondary)};
+  cursor: pointer;
+  transition:
+    background 150ms,
+    color 150ms;
+  font-size: 1rem;
+
+  &:hover {
+    background: ${({ theme }) => `${theme.colors.accent}10`};
+    color: ${({ theme }) => theme.colors.accent};
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+`;
+
+const EditorBody = styled.div`
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+`;
+
+const Content = styled.main`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   background: ${({ theme }) => theme.colors.background};
+  overflow: hidden;
 `;
 
 const UploadWrapper = styled.div`
   width: 100%;
   max-width: 480px;
+  padding: 2rem;
 `;
 
 const StatusMessage = styled.div<{ $variant: 'info' | 'error' | 'success' }>`
@@ -117,19 +202,6 @@ const OcrSection = styled.div`
   border-top: 1px solid ${({ theme }) => theme.colors.border};
 `;
 
-const TextPreview = styled.div`
-  max-height: 200px;
-  overflow-y: auto;
-  padding: 0.75rem;
-  border-radius: ${({ theme }) => theme.radius.sm};
-  background: ${({ theme }) => theme.colors.background};
-  font-size: 0.8125rem;
-  color: ${({ theme }) => theme.colors.text};
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-`;
-
 const RetryButton = styled.button`
   display: block;
   margin: 0.5rem auto 0;
@@ -145,6 +217,10 @@ const RetryButton = styled.button`
   }
 `;
 
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3.0;
+const ZOOM_STEP = 0.25;
+
 interface EditorPageState {
   mode: EditorMode;
   uploadResult: UploadResult | null;
@@ -154,6 +230,8 @@ interface EditorPageState {
   textBlocks: TextBlock[];
   ocrProgress: { current: number; total: number; pageProgress: number; status: string } | null;
   errorMessage: string | null;
+  currentPage: number;
+  zoom: number;
 }
 
 const INITIAL_STATE: EditorPageState = {
@@ -165,6 +243,8 @@ const INITIAL_STATE: EditorPageState = {
   textBlocks: [],
   ocrProgress: null,
   errorMessage: null,
+  currentPage: 1,
+  zoom: 1.0,
 };
 
 export default function EditorPage() {
@@ -213,6 +293,8 @@ export default function EditorPage() {
           textBlocks: [],
           ocrProgress: null,
           errorMessage: null,
+          currentPage: 1,
+          zoom: 1.0,
         });
       } else {
         setState({
@@ -224,6 +306,8 @@ export default function EditorPage() {
           textBlocks: [],
           ocrProgress: null,
           errorMessage: null,
+          currentPage: 1,
+          zoom: 1.0,
         });
       }
     } catch (uploadError) {
@@ -285,51 +369,117 @@ export default function EditorPage() {
         errorMessage: message,
       }));
     }
-  }, [state.uploadResult]);
+  }, [state.uploadResult, state.pdfData]);
 
   const handleReset = useCallback(() => {
     setState(INITIAL_STATE);
   }, []);
 
+  const handlePageChange = useCallback((page: number) => {
+    setState((previous) => ({ ...previous, currentPage: page }));
+  }, []);
+
+  const handleZoomIn = useCallback(() => {
+    setState((previous) => ({
+      ...previous,
+      zoom: Math.min(MAX_ZOOM, Math.round((previous.zoom + ZOOM_STEP) * 100) / 100),
+    }));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setState((previous) => ({
+      ...previous,
+      zoom: Math.max(MIN_ZOOM, Math.round((previous.zoom - ZOOM_STEP) * 100) / 100),
+    }));
+  }, []);
+
+  const isEditing = state.mode === 'editing' && state.pdfData && state.uploadResult;
+  const canZoomIn = state.zoom < MAX_ZOOM;
+  const canZoomOut = state.zoom > MIN_ZOOM;
+  const zoomPercent = Math.round(state.zoom * 100);
+
   return (
     <PageContainer>
       <Header>
         <Title>Editor de PDF</Title>
-        {status === 'loading' ? null : session?.user ? (
-          <UserMenu userName={session.user.name || session.user.email || 'Usuário'} />
-        ) : (
-          <AuthButtons />
-        )}
+        <HeaderActions>
+          {isEditing && (
+            <Button variant="secondary" onClick={handleReset}>
+              Novo PDF
+            </Button>
+          )}
+          {status === 'loading' ? null : session?.user ? (
+            <UserMenu userName={session.user.name || session.user.email || 'Usuário'} />
+          ) : (
+            <AuthButtons />
+          )}
+        </HeaderActions>
       </Header>
 
-      <Content>
-        <UploadWrapper>
-          {state.mode === 'idle' && <UploadZone onUpload={handleUpload} />}
+      {isEditing && state.uploadResult !== null && (
+        <Toolbar>
+          <ToolbarGroup>
+            <ToolbarButton onClick={handleZoomOut} disabled={!canZoomOut} title="Diminuir zoom">
+              −
+            </ToolbarButton>
+            <ZoomLabel>{zoomPercent}%</ZoomLabel>
+            <ToolbarButton onClick={handleZoomIn} disabled={!canZoomIn} title="Aumentar zoom">
+              +
+            </ToolbarButton>
+          </ToolbarGroup>
+          <ToolbarSeparator />
+          <ToolbarGroup>
+            <span
+              style={{
+                fontSize: '0.8125rem',
+                color: '#6B7280',
+              }}
+            >
+              {state.uploadResult.fileName} — {state.uploadResult.pageCount} página(s)
+            </span>
+          </ToolbarGroup>
+        </Toolbar>
+      )}
 
-          {state.mode === 'loading' && <UploadZone onUpload={handleUpload} isUploading />}
+      <EditorBody>
+        {isEditing && state.pdfData !== null && state.uploadResult !== null && (
+          <PageNavigator
+            pdfData={state.pdfData}
+            currentPage={state.currentPage}
+            totalPages={state.uploadResult.pageCount}
+            onPageSelect={handlePageChange}
+          />
+        )}
 
-          {state.mode === 'ocr' && state.uploadResult && (
-            <ResultPanel>
-              <ResultHeader>
-                <ResultLabel>Arquivo enviado</ResultLabel>
-                <ResultValue>{state.uploadResult.fileName}</ResultValue>
-                <ResultLabel>{state.uploadResult.pageCount} página(s)</ResultLabel>
-              </ResultHeader>
+        <Content>
+          {state.mode === 'idle' && (
+            <UploadWrapper>
+              <UploadZone onUpload={handleUpload} />
+            </UploadWrapper>
+          )}
 
-              {state.detection && (
-                <StatusMessage $variant="info">
-                  PDF sem texto nativo detectado — é necessário processar OCR para extrair o texto.
-                </StatusMessage>
-              )}
+          {state.mode === 'loading' && (
+            <UploadWrapper>
+              <UploadZone onUpload={handleUpload} isUploading />
+            </UploadWrapper>
+          )}
 
-              {state.ocrProgress ? (
-                <OcrSection>
-                  <ProgressIndicator
-                    progress={state.ocrProgress.pageProgress}
-                    label={`Página ${state.ocrProgress.current} de ${state.ocrProgress.total} — ${state.ocrProgress.status}`}
-                  />
-                </OcrSection>
-              ) : (
+          {state.mode === 'ocr' && !state.ocrProgress && state.uploadResult && (
+            <UploadWrapper>
+              <ResultPanel>
+                <ResultHeader>
+                  <ResultLabel>Arquivo enviado</ResultLabel>
+                  <ResultValue>{state.uploadResult.fileName}</ResultValue>
+                  <ResultLabel>{state.uploadResult.pageCount} página(s)</ResultLabel>
+                </ResultHeader>
+
+                {state.detection && (
+                  <StatusMessage $variant="info">
+                    PDF sem texto nativo detectado — é necessário processar OCR para extrair o
+                    texto.
+                  </StatusMessage>
+                )}
+
                 <ActionsRow>
                   <Button variant="primary" onClick={handleStartOcr}>
                     Processar OCR
@@ -338,60 +488,40 @@ export default function EditorPage() {
                     Cancelar
                   </Button>
                 </ActionsRow>
-              )}
-            </ResultPanel>
+              </ResultPanel>
+            </UploadWrapper>
           )}
 
-          {state.mode === 'editing' && state.uploadResult && (
-            <ResultPanel>
-              <ResultHeader>
-                <ResultLabel>Arquivo enviado</ResultLabel>
-                <ResultValue>{state.uploadResult.fileName}</ResultValue>
-                <ResultLabel>{state.uploadResult.pageCount} página(s)</ResultLabel>
-              </ResultHeader>
+          {state.mode === 'ocr' && state.ocrProgress && (
+            <UploadWrapper>
+              <ResultPanel>
+                <ProgressIndicator
+                  progress={state.ocrProgress.pageProgress}
+                  label={`Página ${state.ocrProgress.current} de ${state.ocrProgress.total} — ${state.ocrProgress.status}`}
+                />
+              </ResultPanel>
+            </UploadWrapper>
+          )}
 
-              {state.detection && (
-                <StatusMessage $variant={state.detection.hasText ? 'success' : 'info'}>
-                  {state.detection.hasText ? 'PDF com texto nativo' : 'PDF processado com OCR'}
-                </StatusMessage>
-              )}
-
-              {state.ocrResults && state.ocrResults.length > 0 && (
-                <OcrSection>
-                  <ResultLabel>
-                    Texto extraído via OCR ({state.textBlocks.length} bloco(s) encontrado(s))
-                  </ResultLabel>
-                  {state.ocrResults.some((result) => result.text.length > 0) ? (
-                    <TextPreview>
-                      {state.ocrResults
-                        .map((result, index) => `--- Página ${index + 1} ---\n${result.text}`)
-                        .join('\n\n')}
-                    </TextPreview>
-                  ) : (
-                    <StatusMessage $variant="info">
-                      Nenhum texto foi detectado nas páginas do PDF.
-                    </StatusMessage>
-                  )}
-                </OcrSection>
-              )}
-
-              <ActionsRow>
-                <Button variant="secondary" onClick={handleReset}>
-                  Enviar outro PDF
-                </Button>
-              </ActionsRow>
-            </ResultPanel>
+          {state.mode === 'editing' && state.pdfData && state.uploadResult && (
+            <PageViewer
+              pdfData={state.pdfData}
+              currentPage={state.currentPage}
+              totalPages={state.uploadResult.pageCount}
+              zoom={state.zoom}
+              onPageChange={handlePageChange}
+            />
           )}
 
           {state.mode === 'error' && state.errorMessage && (
-            <>
+            <UploadWrapper>
               <UploadZone onUpload={handleUpload} />
               <StatusMessage $variant="error">{state.errorMessage}</StatusMessage>
               <RetryButton onClick={handleReset}>Tentar novamente</RetryButton>
-            </>
+            </UploadWrapper>
           )}
-        </UploadWrapper>
-      </Content>
+        </Content>
+      </EditorBody>
     </PageContainer>
   );
 }

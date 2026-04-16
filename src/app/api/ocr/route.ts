@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createWorker } from 'tesseract.js';
 import { FileStorage } from '@/services/storage/FileStorage';
-import { MIN_CONFIDENCE, groupWordsByLine } from '@/services/ocr/ocrService';
+import { MIN_CONFIDENCE, groupWordsByLine } from '@/services/ocr/ocrUtils';
 import type { OCRResult } from '@/types/pdf';
 import type { TextBlock } from '@/types/editor';
 
