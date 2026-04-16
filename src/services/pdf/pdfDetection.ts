@@ -1,6 +1,7 @@
 import type { PDFDetectionResult } from '@/types/pdf';
 import type { TextBlock } from '@/types/editor';
 import { getDocument } from '@/lib/pdfjs';
+import { detectFontFromPdfName } from '@/services/pdf/fontDetection';
 
 function extractPdfObjects(buffer: Uint8Array): Map<string, string> {
   const content = new TextDecoder('latin1').decode(buffer);
@@ -15,6 +16,33 @@ function extractPdfObjects(buffer: Uint8Array): Map<string, string> {
   }
 
   return objects;
+}
+
+function extractFontMapFromPdf(buffer: Uint8Array): Map<string, string> {
+  const content = new TextDecoder('latin1').decode(buffer);
+  const fontMap = new Map<string, string>();
+  const objects = extractPdfObjects(buffer);
+
+  const objNumToBaseFont = new Map<string, string>();
+  for (const [objKey, objContent] of objects) {
+    const baseFontMatch = objContent.match(/\/BaseFont\s*\/([^\s\/\]>]+)/);
+    if (baseFontMatch) {
+      objNumToBaseFont.set(objKey, baseFontMatch[1]);
+    }
+  }
+
+  const fontAliasRegex = /\/(F\d+)\s+(\d+)\s+(\d+)\s+R/g;
+  let aliasMatch;
+  while ((aliasMatch = fontAliasRegex.exec(content)) !== null) {
+    const alias = aliasMatch[1];
+    const refKey = `${aliasMatch[2]} ${aliasMatch[3]}`;
+    const baseFont = objNumToBaseFont.get(refKey);
+    if (baseFont && !fontMap.has(alias)) {
+      fontMap.set(alias, baseFont);
+    }
+  }
+
+  return fontMap;
 }
 
 export function detectPdfType(data: Uint8Array): PDFDetectionResult {
@@ -62,6 +90,8 @@ export function detectPdfType(data: Uint8Array): PDFDetectionResult {
 }
 
 export async function extractPageTexts(data: Uint8Array): Promise<TextBlock[]> {
+  const rawFontMap = extractFontMapFromPdf(data);
+
   const doc = await getDocument({ data: new Uint8Array(data) }).promise;
   const blocks: TextBlock[] = [];
 
@@ -77,6 +107,7 @@ export async function extractPageTexts(data: Uint8Array): Promise<TextBlock[]> {
           transform: number[];
           width?: number;
           height?: number;
+          fontName?: string;
         };
         if (!textItem.str.trim()) continue;
 
@@ -84,6 +115,19 @@ export async function extractPageTexts(data: Uint8Array): Promise<TextBlock[]> {
         const yPdf = textItem.transform[5];
         const fontSize = Math.abs(textItem.transform[0]) || Math.abs(textItem.transform[3]) || 12;
         const width = textItem.width ?? textItem.str.length * fontSize * 0.5;
+
+        let fontFamily = 'sans-serif';
+        const pdfjsFontName = textItem.fontName ?? '';
+
+        if (pdfjsFontName) {
+          const fMatch = pdfjsFontName.match(/_f(\d+)$/);
+          const fontIndex = fMatch ? parseInt(fMatch[1], 10) : 0;
+          const alias = `F${fontIndex}`;
+          const realFontName = rawFontMap.get(alias);
+          if (realFontName) {
+            fontFamily = detectFontFromPdfName(realFontName);
+          }
+        }
 
         const topLeft = viewport.convertToViewportPoint(x, yPdf);
         const bottomLeft = viewport.convertToViewportPoint(x, yPdf - fontSize);
@@ -93,11 +137,11 @@ export async function extractPageTexts(data: Uint8Array): Promise<TextBlock[]> {
           pageIndex,
           text: textItem.str,
           x: topLeft[0],
-          y: topLeft[1],
+          y: topLeft[1] - fontSize * 0.8,
           width,
           height: Math.abs(bottomLeft[1] - topLeft[1]),
           fontSize,
-          fontFamily: 'sans-serif',
+          fontFamily,
         });
       }
     }

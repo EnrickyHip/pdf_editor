@@ -20,6 +20,7 @@ interface EditorStore {
   setTextBlocks: (blocks: TextBlock[]) => void;
 
   updateBlockText: (blockId: string, newText: string) => void;
+  updateBlockFont: (blockId: string, fontFamily: string) => void;
 
   addInsertion: (insertion: TextInsertion) => void;
   updateInsertion: (id: string, text: string) => void;
@@ -95,6 +96,20 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       }
 
       return { textBlocks: newBlocks, edits: newEdits };
+    });
+  },
+
+  updateBlockFont: (blockId, fontFamily) => {
+    pushUndo(set, get);
+    set((state) => {
+      const blockIndex = state.textBlocks.findIndex((block) => block.id === blockId);
+      if (blockIndex === -1) return state;
+
+      const block = state.textBlocks[blockIndex];
+      const newBlocks = [...state.textBlocks];
+      newBlocks[blockIndex] = { ...block, fontFamily };
+
+      return { textBlocks: newBlocks };
     });
   },
 

@@ -17,7 +17,6 @@ const OverlayContainer = styled.div`
   bottom: 0;
   z-index: 10;
   pointer-events: none;
-  background: white;
 `;
 
 const EditableBlock = styled.div`
@@ -28,24 +27,16 @@ const EditableBlock = styled.div`
   white-space: nowrap;
   overflow: visible;
   color: ${({ theme }) => theme.colors.text};
-  background: transparent;
+  background: white;
   caret-color: ${({ theme }) => theme.colors.accent};
-  border: 1px solid transparent;
-  border-radius: 2px;
-  padding: 1px 2px;
-  line-height: 1.2;
-  transition:
-    border-color 150ms,
-    box-shadow 150ms;
-
-  &:hover {
-    border-color: ${({ theme }) => `${theme.colors.accent}60`};
-  }
+  border: none;
+  line-height: 1;
+  padding: 0;
+  margin: 0;
 
   &:focus {
-    border-color: ${({ theme }) => theme.colors.accent};
-    box-shadow: 0 0 0 2px ${({ theme }) => `${theme.colors.accent}30`};
-    background: white;
+    outline: 2px solid ${({ theme }) => theme.colors.accent};
+    outline-offset: 1px;
   }
 `;
 
@@ -95,11 +86,13 @@ function TextOverlay({ pageIndex, zoom }: TextOverlayProps) {
           }}
           contentEditable
           suppressContentEditableWarning
+          tabIndex={0}
           style={{
             left: `${block.x * zoom}px`,
             top: `${block.y * zoom}px`,
             fontSize: `${block.fontSize * zoom}px`,
             fontFamily: block.fontFamily,
+            minHeight: `${block.fontSize * zoom}px`,
           }}
           onBlur={() => handleBlur(block.id)}
           onKeyDown={handleKeyDown}
