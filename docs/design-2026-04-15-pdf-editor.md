@@ -107,7 +107,16 @@ src/
 
 ### Edição
 
-- Clicar em texto existente → input inline
+**Abordagem de overlay:** Cada bloco de texto detectado (via OCR ou extração nativa) vira uma div contentEditable posicionada sobre o canvas do PDF.
+
+**Estados visuais do overlay:**
+
+- **Normal (sem foco):** texto transparente, fundo transparente → vê-se apenas o texto original do PDF por baixo. Indicador sutil (borda ao hover) sinaliza que o bloco é editável.
+- **Editando (com foco):** texto visível, fundo com 25% de opacidade da cor de destaque → substitui visualmente o texto original do PDF naquela área. O usuário edita "no lugar" (in-place), vendo o resultado em tempo real. O PDF original permanece por baixo mas fica visualmente dominado pelo overlay.
+
+**Por que overlay transparente (não esconder o PDF):** O PDF.js renderiza o canvas inteiro — não é possível esconder regiões específicas sem re-renderizar. A abordagem de overlay transparente permite preview instantâneo sem manipular o canvas do PDF.js. No estado de edição, a opacidade do fundo (25%) cobre o suficiente para que o texto editável seja o foco visual.
+
+- Clicar em texto existente → input inline (overlay ganha foco)
 - Clicar em área vazia → inserir novo bloco de texto
 - Selecionar texto → botão de highlight (amarelo default, cores opcionais)
 

@@ -9,7 +9,8 @@ import { AuthButtons } from '@/components/auth/LoginButton';
 import { UserMenu } from '@/components/auth/UserMenu';
 import { Button } from '@/components/ui/Button';
 import { ProgressIndicator } from '@/components/ui/ProgressIndicator';
-import { detectPdfType } from '@/services/pdf/pdfDetection';
+import { detectPdfType, extractPageTexts } from '@/services/pdf/pdfDetection';
+import { useEditorStore } from '@/stores/editorStore';
 import type { UploadResult, PDFDetectionResult, OCRResult } from '@/types/pdf';
 import type { EditorMode, TextBlock } from '@/types/editor';
 
@@ -250,75 +251,83 @@ const INITIAL_STATE: EditorPageState = {
 export default function EditorPage() {
   const { data: session, status } = useSession();
   const [state, setState] = useState<EditorPageState>(INITIAL_STATE);
+  const setTextBlocks = useEditorStore((s) => s.setTextBlocks);
+  const resetEditorStore = useEditorStore((s) => s.reset);
 
-  const handleUpload = useCallback(async (file: File) => {
-    setState({
-      ...INITIAL_STATE,
-      mode: 'loading',
-    });
-
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const responseData = await response.json().catch(() => null);
-        throw new Error(responseData?.error ?? 'Erro ao fazer upload do arquivo.');
-      }
-
-      const uploadResult: UploadResult = await response.json();
-
-      const arrayBuffer = await file.arrayBuffer();
-      const pdfData = new Uint8Array(arrayBuffer);
-
-      let detection: PDFDetectionResult | null = null;
-      try {
-        detection = detectPdfType(pdfData);
-      } catch {
-        detection = null;
-      }
-
-      if (detection && !detection.hasText) {
-        setState({
-          mode: 'ocr',
-          uploadResult,
-          pdfData,
-          detection,
-          ocrResults: null,
-          textBlocks: [],
-          ocrProgress: null,
-          errorMessage: null,
-          currentPage: 1,
-          zoom: 1.0,
-        });
-      } else {
-        setState({
-          mode: 'editing',
-          uploadResult,
-          pdfData,
-          detection,
-          ocrResults: null,
-          textBlocks: [],
-          ocrProgress: null,
-          errorMessage: null,
-          currentPage: 1,
-          zoom: 1.0,
-        });
-      }
-    } catch (uploadError) {
-      const message = uploadError instanceof Error ? uploadError.message : 'Erro desconhecido.';
+  const handleUpload = useCallback(
+    async (file: File) => {
       setState({
         ...INITIAL_STATE,
-        mode: 'error',
-        errorMessage: message,
+        mode: 'loading',
       });
-    }
-  }, []);
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const responseData = await response.json().catch(() => null);
+          throw new Error(responseData?.error ?? 'Erro ao fazer upload do arquivo.');
+        }
+
+        const uploadResult: UploadResult = await response.json();
+
+        const arrayBuffer = await file.arrayBuffer();
+        const pdfData = new Uint8Array(arrayBuffer);
+
+        let detection: PDFDetectionResult | null = null;
+        try {
+          detection = detectPdfType(pdfData);
+        } catch {
+          detection = null;
+        }
+
+        if (detection && !detection.hasText) {
+          setState({
+            mode: 'ocr',
+            uploadResult,
+            pdfData,
+            detection,
+            ocrResults: null,
+            textBlocks: [],
+            ocrProgress: null,
+            errorMessage: null,
+            currentPage: 1,
+            zoom: 1.0,
+          });
+        } else {
+          const nativeBlocks = await extractPageTexts(pdfData);
+          setTextBlocks(nativeBlocks);
+
+          setState({
+            mode: 'editing',
+            uploadResult,
+            pdfData,
+            detection,
+            ocrResults: null,
+            textBlocks: nativeBlocks,
+            ocrProgress: null,
+            errorMessage: null,
+            currentPage: 1,
+            zoom: 1.0,
+          });
+        }
+      } catch (uploadError) {
+        const message = uploadError instanceof Error ? uploadError.message : 'Erro desconhecido.';
+        setState({
+          ...INITIAL_STATE,
+          mode: 'error',
+          errorMessage: message,
+        });
+      }
+    },
+    [setTextBlocks],
+  );
 
   const handleStartOcr = useCallback(async () => {
     if (!state.pdfData || !state.uploadResult) return;
@@ -349,6 +358,8 @@ export default function EditorPage() {
 
       const textBlocks = ocrData.blocks;
 
+      setTextBlocks(textBlocks);
+
       setState((previous) => ({
         ...previous,
         mode: 'editing',
@@ -369,11 +380,12 @@ export default function EditorPage() {
         errorMessage: message,
       }));
     }
-  }, [state.uploadResult, state.pdfData]);
+  }, [state.uploadResult, state.pdfData, setTextBlocks]);
 
   const handleReset = useCallback(() => {
     setState(INITIAL_STATE);
-  }, []);
+    resetEditorStore();
+  }, [resetEditorStore]);
 
   const handlePageChange = useCallback((page: number) => {
     setState((previous) => ({ ...previous, currentPage: page }));

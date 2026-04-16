@@ -1,9 +1,6 @@
 import type { PDFDetectionResult } from '@/types/pdf';
-
-interface PageTextResult {
-  text: string;
-  pageIndex: number;
-}
+import type { TextBlock } from '@/types/editor';
+import { getDocument } from '@/lib/pdfjs';
 
 function extractPdfObjects(buffer: Uint8Array): Map<string, string> {
   const content = new TextDecoder('latin1').decode(buffer);
@@ -64,6 +61,49 @@ export function detectPdfType(data: Uint8Array): PDFDetectionResult {
   };
 }
 
-export async function extractPageTexts(data: Uint8Array): Promise<PageTextResult[]> {
-  return [];
+export async function extractPageTexts(data: Uint8Array): Promise<TextBlock[]> {
+  const doc = await getDocument({ data: new Uint8Array(data) }).promise;
+  const blocks: TextBlock[] = [];
+
+  try {
+    for (let pageIndex = 0; pageIndex < doc.numPages; pageIndex++) {
+      const page = await doc.getPage(pageIndex + 1);
+      const textContent = await page.getTextContent();
+      const viewport = page.getViewport({ scale: 1 });
+
+      for (const item of textContent.items) {
+        const textItem = item as {
+          str: string;
+          transform: number[];
+          width?: number;
+          height?: number;
+        };
+        if (!textItem.str.trim()) continue;
+
+        const x = textItem.transform[4];
+        const yPdf = textItem.transform[5];
+        const fontSize = Math.abs(textItem.transform[0]) || Math.abs(textItem.transform[3]) || 12;
+        const width = textItem.width ?? textItem.str.length * fontSize * 0.5;
+
+        const topLeft = viewport.convertToViewportPoint(x, yPdf);
+        const bottomLeft = viewport.convertToViewportPoint(x, yPdf - fontSize);
+
+        blocks.push({
+          id: `native-${pageIndex}-${blocks.length}`,
+          pageIndex,
+          text: textItem.str,
+          x: topLeft[0],
+          y: topLeft[1],
+          width,
+          height: Math.abs(bottomLeft[1] - topLeft[1]),
+          fontSize,
+          fontFamily: 'sans-serif',
+        });
+      }
+    }
+  } finally {
+    await doc.destroy();
+  }
+
+  return blocks;
 }

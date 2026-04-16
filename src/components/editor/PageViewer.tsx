@@ -4,6 +4,7 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 import styled from 'styled-components';
 import { getDocument } from '@/lib/pdfjs';
 import type { PDFPageProxy, PDFDocumentProxy } from '@/lib/pdfjs';
+import { TextOverlay } from '@/components/editor/TextOverlay';
 
 interface PageViewerProps {
   pdfData: Uint8Array;
@@ -30,6 +31,7 @@ const Container = styled.div`
 
 const CanvasWrapper = styled.div`
   position: relative;
+  display: inline-block;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   background: #fff;
   flex-shrink: 0;
@@ -199,6 +201,7 @@ export function PageViewer({
         pdfDocRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfData]);
 
   useEffect(() => {
@@ -226,6 +229,7 @@ export function PageViewer({
                 ) : (
                   <>
                     <PageCanvas ref={(element) => setCanvasRef(pageIndex, element)} />
+                    <TextOverlay pageIndex={pageIndex} zoom={zoom} />
                     {state.isLoading && (
                       <PagePlaceholder
                         $width={PLACEHOLDER_WIDTH * zoom}

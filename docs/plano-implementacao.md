@@ -338,10 +338,13 @@ Página principal que orquestra:
 
 **Comportamento:**
 
-- Recebe text blocks (posições do PDF.js ou OCR)
-- Renderiza div contentEditable em cada posição
-- Posicionamento absoluto sobre o canvas do PDF
+- Recebe text blocks do Zustand store (posições do PDF.js ou OCR)
+- Renderiza div contentEditable em cada posição, absolutamente sobre o canvas do PDF
 - Escala as posições conforme o zoom
+- **Estado normal (sem foco):** texto transparente, fundo transparente — vê-se apenas o PDF original. Borda sutil ao hover indica editabilidade.
+- **Estado de edição (com foco):** texto visível, fundo 25% opacidade — substitui visualmente o texto original naquela área. Usuário edita in-place.
+- Blur salva texto no store via `updateBlockText()`
+- Escape cancela edição
 
 ---
 
